@@ -1,0 +1,15 @@
+#xy {
+    width:300px;
+    height:300px;
+    border:1px solid black;
+    cursor:crosshair;
+    position:relative;
+}
+#dest {
+    width:10px;
+    height:10px;
+    border:0px solid black;
+    position:relative;
+    top:50px;
+    left:50px;
+}

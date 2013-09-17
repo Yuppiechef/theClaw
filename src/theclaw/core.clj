@@ -1,4 +1,4 @@
-(ns pigpiosrv.core
+(ns theclaw.core
   (:require [server.socket :as s])
   (:require [clojure.tools.nrepl.server :as nrepl])
   (:import [java.io DataOutputStream])
@@ -203,18 +203,48 @@
 (defn send-range [pwm dir sleep & [d]]
   (send-pigpio :write sleep 0)
   (send-pigpio :setpwmrange pwm 5000)
-  (send-pigpio :pwm pwm 50)
+  (send-pigpio :pwm pwm 80)
   (send-pigpio :write dir (or d 0))
   (doseq [x (range 8)]
+    (println (* x 200))
     (Thread/sleep 100)
     (send-pigpio :setpwmfrequency pwm (* (inc x) 100)))
   (send-pigpio :setpwmfrequency pwm 1100)
-  (Thread/sleep 2000)
+  (Thread/sleep 100)
   (doseq [x (reverse (range 4))]
+    (println (* x 200))
     (Thread/sleep 100)
     (send-pigpio :setpwmfrequency pwm (* x 200)))
   (send-pigpio :pwm pwm 0)
   (send-pigpio :write sleep 1))
+
+(defn send-sine [[pwm dir sleep] size]
+  (send-pigpio :setpwmrange pwm 255)
+  (send-pigpio :pwm pwm 80)
+  (send-pigpio :write dir (if (neg? size) 1 0))
+  (send-pigpio :write sleep 0)
+  (let [ms (Math/abs size)]
+    (doseq [x (range ms)]
+      (println x " - " (* (Math/sin (* (/ x ms) Math/PI)) 240))
+      (send-pigpio :setpwmfrequency pwm (int (* (Math/sin (* (/ x ms) Math/PI)) 240)))
+      (Thread/sleep 10)))
+  (send-pigpio :pwm pwm 0)
+  (send-pigpio :write sleep 1)
+  )
+
+(defn csend-sine [size]
+  (doseq [x (range 0 100)]
+    (println x " - " (* (Math/sin (* (/ x 100) Math/PI )) (* (/ size 200) 800)))
+    (Thread/sleep 10)))
+
+(defn csend-list [size]
+  (let [time (/ (Math/sqrt size) 5)]
+    (for [x (range 0 (* time 106))]
+      (* (Math/sin (* (/ x 100) Math/PI )) (* (/ size time) 800 11.3)))))
+
+(defn send-to [xset yset [lx ly] [nx ny] scale]
+  (doto (Thread. (partial send-sine xset (* scale (- nx lx)))) .start)
+  (doto (Thread. (partial send-sine yset (* scale (- ny ly)))) .start))
 
 (defn start-pwm [pwm dir sleep & [d]]
   (.start
