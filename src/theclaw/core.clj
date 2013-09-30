@@ -161,7 +161,7 @@
   (disconnect)
   (stop))
 
-(defn test [n x]
+(defn test3 [n x]
   (connect "10.0.0.9")
   (.write (.getOutputStream @client)
           (byte-array

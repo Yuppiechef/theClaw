@@ -10,4 +10,4 @@
                  [hiccup "1.0.4"]
                  [org.clojure/tools.nrepl "0.2.3" :exclusions [org.clojure/clojure]]
                  [com.pi4j/pi4j-core "0.0.5"]]
-  :main theclaw.srv)
+  :main theclaw.core)
