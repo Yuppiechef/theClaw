@@ -8,5 +8,6 @@
                  [compojure "1.1.5"]
                  [ring-server "0.2.8"]
                  [hiccup "1.0.4"]
-                 [org.clojure/tools.nrepl "0.2.3" :exclusions [org.clojure/clojure]]]
+                 [org.clojure/tools.nrepl "0.2.3" :exclusions [org.clojure/clojure]]
+                 [com.pi4j/pi4j-core "0.0.5"]]
   :main theclaw.srv)
