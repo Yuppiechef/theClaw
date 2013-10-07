@@ -9,5 +9,8 @@
                  [ring-server "0.2.8"]
                  [hiccup "1.0.4"]
                  [org.clojure/tools.nrepl "0.2.3" :exclusions [org.clojure/clojure]]
-                 [com.pi4j/pi4j-core "0.0.5"]]
+                 [com.pi4j/pi4j-core "0.0.5"]
+                 [com.novemberain/langohr "1.5.0"]
+                 [org.clojure/data.json "0.2.3"]
+                 ]
   :main theclaw.core)
