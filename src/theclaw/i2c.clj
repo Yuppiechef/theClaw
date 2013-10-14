@@ -32,6 +32,10 @@
         a (.array b)]
     (.write device a 0 (count a))))
 
+#_ (setup-bus)
+#_ (write-command :calibrate)
+#_ (write-command :speed 600 600)
+#_ (write-command :move 1000 1000)
 
 
 
