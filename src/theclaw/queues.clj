@@ -43,10 +43,12 @@
   [f ch {:keys [reply-to] :as metadata} ^bytes payload]
   (info "Receiving message for " (:routing-key metadata))
   (info "Metadata: " metadata)
-  (let [body (decode-body metadata payload)
-        response (f metadata body)]
-    (if (and reply-to response)
-      (publish reply-to response))))
+  (try
+    (let [body (decode-body metadata payload)
+          response (f metadata body)]
+      (if (and reply-to response)
+        (publish reply-to response)))
+    (catch Exception e (.printStackTrace e))))
 
 (defn- listen-fn [queuename f]
   (let [ch (lch/open (connect!))]

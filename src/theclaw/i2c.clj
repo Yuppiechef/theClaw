@@ -22,7 +22,8 @@
    :calibrate 1
    :move 2
    :grab 3
-   :speed 4})
+   :speed 4
+   :claw 5})
 
 (defn write-command [device command-key & [arg1 arg2 arg3 arg4]]
   (let [b (doto (ByteBuffer/allocate 6)
