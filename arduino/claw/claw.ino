@@ -10,6 +10,8 @@ AccelStepper steppers[] = {sx, sy, sz};
 
 Servo claw;
 int clawpin = 17;
+int claw_open = 20;
+int claw_closed = 180;
 int val;
 
 
@@ -32,8 +34,11 @@ int PKTLEN = 6;
 int enable;
 
 // {x lower, x upper, y lower, y upper}
+int limits = 4;
 int limit_pins[] = {9, 8, 7, 6};
 boolean limits_hit[] = {false, false, false, false};
+long bounce_times[] = {0,0,0,0};
+long debounceDelay = 150;
 boolean limits_bounce[] = {false, false, false, false};
 boolean initialized = false;
 
@@ -63,13 +68,27 @@ void stepperSpeed(int* stepper, int maxSpeed, int accel) {
   steppers[stepper[0]].setAcceleration(accel);
 }
 
+void stopStepper(int* stepper) {
+  digitalWrite(stepper[2],1);
+  stepper[1] = 0;
+  AccelStepper s = steppers[stepper[0]];
+  s.moveTo(s.currentPosition());
+}
+
 void checkStepperDistance(int* stepper) {
   if (stepper[1] > 0) { 
     if (steppers[stepper[0]].distanceToGo() == 0) {
-      digitalWrite(stepper[2],1);
-      stepper[1] = 0;
+      stopStepper(stepper);
     }
   }
+}
+
+void openClaw() {
+  claw.write(claw_open);
+}
+
+void closeClaw() {
+  claw.write(claw_closed);
 }
 
 void setup() {
@@ -85,7 +104,10 @@ void initializeSteppers() {
     buffer[i] = 0;
   }
 
-  for (int i = 0; i < sizeof(limit_pins); i++) {
+  for (int i = 0; i < limits; i++) {
+    Serial.print("Setting ");
+    Serial.print(limit_pins[i]);
+    Serial.println(" as input pin.");
     pinMode(limit_pins[i], INPUT);
     limits_bounce[i] = false;
   }
@@ -98,6 +120,7 @@ void initializeSteppers() {
   setupStepper(zstep);
 
   claw.attach(clawpin);
+  initialized = true;
 }
 
 void checkdistance() {
@@ -108,10 +131,11 @@ void checkdistance() {
 
 void startCalibrate() {
   Serial.println("Reset command");
-  for(int i= 0; i < sizeof(limits_hit);i++) {
+  for(int i= 0; i < limits;i++) {
     limits_hit[i] = false;
   }
   calibrating = 1;
+  closeClaw();
 }
 
 void moveCommand(int x, int y) {
@@ -194,31 +218,45 @@ void checkLimits(int* stepper) {
   AccelStepper s = steppers[stepper[0]];
 
   // Min
-  if (digitalRead(limit_pins[lowlimit]) == HIGH) {
+  if ((digitalRead(limit_pins[lowlimit]) == HIGH)) {
     if (!limits_bounce[lowlimit]) {
-      Serial.println("min limit");
+      Serial.print(limit_pins[lowlimit]);
+      Serial.println(" - min limit <");
       if (s.targetPosition() < s.currentPosition()) {
         s.moveTo(s.currentPosition());
       }
+      bounce_times[lowlimit] = millis();
       s.setCurrentPosition(0);
       s.moveTo(0);
       limits_bounce[lowlimit] = true;
     }
   } else {
-    limits_bounce[lowlimit] = false;
+    if ((millis() - bounce_times[lowlimit]) > debounceDelay) {
+      limits_bounce[lowlimit] = false;
+    }
   }
 
   // Max
   if (digitalRead(limit_pins[uplimit]) == HIGH) {
     if (!limits_bounce[uplimit]) {
-      Serial.println("max limit");
+      Serial.print(limit_pins[uplimit]);
+      Serial.println(" - max limit >");
       if (s.targetPosition() > s.currentPosition()) {
         s.moveTo(s.currentPosition());
       }
+      bounce_times[uplimit] = millis();
       limits_bounce[uplimit] = true;
+      
+      // If the low limit and upper limit are simultaneously down, start calibration
+      if (limits_bounce[lowlimit]) {
+        Serial.println("Trigger manual calibration");
+        calibrating = 9;
+      }
     }
   } else {
-    limits_bounce[uplimit] = false;
+    if ((millis() - bounce_times[uplimit]) > debounceDelay) {
+      limits_bounce[uplimit] = false;
+    }
   }
 }
 
@@ -228,13 +266,23 @@ void runCalibrate(int* stepper) {
   AccelStepper s = steppers[stepper[0]];
 
   if (!limits_hit[lowlimit]) {
-    moveStepper(stepper, s.currentPosition()-100);
-    s.setSpeed(calibrate_speed);
-    s.runSpeedToPosition();
+    if (limits_bounce[lowlimit]) {
+      limits_hit[lowlimit] = true;
+    } else {
+      moveStepper(stepper, s.currentPosition()-100);
+      s.setSpeed(calibrate_speed);
+      s.runSpeedToPosition();
+    }
   } else if (!limits_hit[uplimit]) {
-    moveStepper(stepper, s.currentPosition()+100);
-    s.setSpeed(calibrate_speed);
-    s.runSpeedToPosition();
+    if (limits_bounce[uplimit]) {
+      limits_hit[uplimit] = true;
+    } else {
+      moveStepper(stepper, s.currentPosition()+100);
+      s.setSpeed(calibrate_speed);
+      s.runSpeedToPosition();
+    }
+  } else {
+    stopStepper(stepper);
   }
 }
 
@@ -243,26 +291,32 @@ void loopCalibrateCenter() {
   if (xstep[1] == 0 && ystep[1] == 0) {
     Serial.println("Finished Centering Calibrate");
     calibrating = 0;
+    openClaw();
   }
 }
 
 void loopCalibrate() {
+  if (calibrating == 9) {
+    boolean alloff = true;
+    for (int i = 0; i < limits; i++) {
+      if (digitalRead(limit_pins[i]) == HIGH) {
+        alloff = false;
+      }
+    }
+    
+    if (alloff) {
+      Serial.println("Starting manual calibration");
+      startCalibrate();
+    }
+    return;
+  }
   if (calibrating == 2) {
     loopCalibrateCenter();
     return;
   }
 
-  checkLimits(xstep);
-  checkLimits(ystep);
-
-  for (int i = 0; i < sizeof(limit_pins); i++) {
-    if (limits_bounce[i]) {
-      limits_hit[i] = true;
-    }
-  }
-
   boolean allhit = true;
-  for (int i = 0; i < sizeof(limits_hit); i++) {
+  for (int i = 0; i < limits; i++) {
     if (!limits_hit[i]) {
       allhit = false;
     }
@@ -289,23 +343,33 @@ void loopCalibrate() {
 }
 
 void loop() {
-  checkdistance();
+  // send data only when you receive data:
+  if (Serial.available() > 0) {
+    // read the incoming byte:
+    byte incomingByte = Serial.read();
+    // say what you got:
+    Serial.print("Serial received: ");
+    Serial.println(incomingByte, DEC);
   
-  if (calibrating > 0) {
-    loopCalibrate();
-    return;
+    if (incomingByte == 105) { // i
+      Serial.println("Initializing Steppers");
+      initializeSteppers();
+    } else if (incomingByte == 99) { // c
+      Serial.println("Calibrating");
+      startCalibrate();
+    }
   }
-/*  if ((i++ % 50) == 0) {
-    enable = digitalRead(enmaster);
-    digitalWrite(enx,enable);
-    digitalWrite(eny,enable);
-  }
-*/ 
-
+  
+       
   if (initialized) {
+    checkdistance();
     checkLimits(xstep);
     checkLimits(ystep);
-  
+    if (calibrating > 0) {
+      loopCalibrate();
+      return;
+    }
+        
     steppers[xstep[0]].run();
     steppers[ystep[0]].run();
     steppers[zstep[0]].run();
