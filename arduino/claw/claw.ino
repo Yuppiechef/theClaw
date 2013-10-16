@@ -35,6 +35,7 @@ int enable;
 int limit_pins[] = {9, 8, 7, 6};
 boolean limits_hit[] = {false, false, false, false};
 boolean limits_bounce[] = {false, false, false, false};
+boolean initialized = false;
 
 // Calibrating state - 0 none, 1 runninng, 2 centering
 int calibrating = 0;
@@ -74,8 +75,10 @@ void checkStepperDistance(int* stepper) {
 void setup() {
   Wire.begin(4);                // join i2c bus with address #4
   Wire.onReceive(receiveEvent); // register event
-  Serial.begin(57600);         // start serial for output
-  
+  Serial.begin(57600);         // start serial for output  
+}
+
+void initializeSteppers() {
   // clear buffer
   pos = 0;
   for (int i = 0; i < sizeof(buffer); i++) {
@@ -158,7 +161,10 @@ void processPacket() {
     setSpeed(a1, a2);
   } else if (comm == 5) {
     moveClawCommand(a1, a2);
+  } else if (comm == 6) {
+    initializeSteppers();
   }
+
   
 }
 
@@ -295,12 +301,14 @@ void loop() {
     digitalWrite(eny,enable);
   }
 */ 
-  checkLimits(xstep);
-  checkLimits(ystep);
+
+  if (initialized) {
+    checkLimits(xstep);
+    checkLimits(ystep);
   
-  steppers[xstep[0]].run();
-  steppers[ystep[0]].run();
-  steppers[zstep[0]].run();
- 
+    steppers[xstep[0]].run();
+    steppers[ystep[0]].run();
+    steppers[zstep[0]].run();
+  }
 }
 
