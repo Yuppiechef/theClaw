@@ -9,9 +9,15 @@ AccelStepper sz(1, 16, 15);
 AccelStepper steppers[] = {sx, sy, sz};
 
 Servo claw;
+// 0 = inactive, 1 = dropping, 2 = grabbing, 3 = lifting, 4 = reading, 5 = resetting
+int claw_status = 0;
 int clawpin = 17;
 int claw_open = 20;
 int claw_closed = 180;
+int claw_drop_distance = 500;
+int claw_close_time = 10000;
+int claw_read_value = 0;
+boolean claw_read_latch = false;
 int val;
 
 
@@ -153,6 +159,10 @@ void moveClawCommand(int z, int clawpos) {
   claw.write(clawpos);
 }
 
+void dropClaw() {
+  claw_status = 1;
+}
+
 void setSpeed(int maxSpeed, int accel) {
   stepperSpeed(xstep, maxSpeed, accel);
   stepperSpeed(ystep, maxSpeed, accel);
@@ -170,9 +180,23 @@ void processPacket() {
   Serial.println(a1);
   Serial.println(a2);
 
-  if (calibrating > 0) {
-    Serial.print("Chill. Busy calibrating");
+  if (!initialized) {
+    if (comm == 6) {
+      initializeSteppers();
+    } else {
+      Serial.println("System not initialized, please send 6.");
+    }
+    
     return;
+  }
+
+  if (calibrating > 0) {
+    Serial.println("Chill. Busy calibrating");
+    return;
+  }
+
+  if (claw_status > 0) {
+    Serial.println("Claw busy dropping.. hang on.");
   }
 
   if (comm == 1) {
@@ -180,13 +204,25 @@ void processPacket() {
   } else if (comm == 2) {
     moveCommand(a1, a2);
   } else if (comm == 3) {
-    
+    dropClaw();
   } else if (comm == 4) {
     setSpeed(a1, a2);
   } else if (comm == 5) {
     moveClawCommand(a1, a2);
   } else if (comm == 6) {
-    initializeSteppers();
+    // Initialize - already done, so do nothing.
+  } else if (comm == 7) {
+    if (claw_read_value > 0) {
+      // TODO: Refactor into generic sending function if used for something else.
+      Wire.write(0); // Command - bit 1
+      Wire.write(7); 
+      Wire.write((claw_read_value >> 8) & 0xFF); // Bit 2 - value1
+      Wire.write(claw_read_value & 0xFF); // Bit 1 - value1
+      Wire.write(0); // Value 2
+      Wire.write(0);
+
+      claw_read_latch = true;
+    }
   }
 
   
@@ -342,6 +378,64 @@ void loopCalibrate() {
   }
 }
 
+void loopClawDrop() {
+  // 0 = inactive, 1 = starting, 3 = dropping, 5 = grabbing, 7 = lifting, 9 = reading, 
+  // 10 = sending, 11 = resetting
+  switch (claw_status) {
+  case 1: { // starting
+    Serial.println("Dropping CLAW!");
+    moveStepper(zstep, claw_drop_distance);
+    claw_status = 3;
+    break;
+  }
+  case 3: { // Dropping
+    if (zs.distanceToGo() == 0) {
+      claw_status = 5;
+      Serial.println("Grabbing");
+    }
+    break;
+  }
+  case 5: { // Grabbing
+    closeClaw();
+    delay(claw_close_time);
+    moveStepper(zstep, 0);
+    claw_status = 7
+    Serial.println("Lifting");
+    break;
+  }
+  case 7: { // Lifting
+    if (zs.distanceToGo() == 0) {
+      claw_status = 9;
+      Serial.println("Reading");
+    }
+    break;
+  }
+  case 9: { // Reading
+    claw_read_value = 100; // TODO: UART Read from RFID.
+    if (claw_read_value > 0) {
+      claw_read_latch = false;
+      claw_status = 10;
+      Serial.print(claw_read_value);
+      Serial.println(" - Found read value, sending");
+    }
+    break;
+  }
+  case 10: { // Waiting to send
+    if (claw_read_latch) {
+      resetClaw();
+      claw_status = 11;
+      Serial.println("Resetting");
+    }
+  case 11: { // Resetting
+    if (sx.distanceToGo() == 0 && sy.distanceToGo() == 0 && sz.distanceToGo() == 0) {
+      claw_status = 0;
+      Serial.println("All done, ready for next command.");
+    }
+    break;
+  }
+  }
+}
+
 void loop() {
   // send data only when you receive data:
   if (Serial.available() > 0) {
@@ -357,6 +451,9 @@ void loop() {
     } else if (incomingByte == 99) { // c
       Serial.println("Calibrating");
       startCalibrate();
+    } else if (incomingByte == 100) {
+      Serial.println("Incoming Claw Drop!");
+      dropClaw();
     }
   }
   
@@ -369,10 +466,14 @@ void loop() {
       loopCalibrate();
       return;
     }
-        
+
     steppers[xstep[0]].run();
     steppers[ystep[0]].run();
     steppers[zstep[0]].run();
+
+    if (claw_status > 0) {
+      loopClawDrop();
+    }
   }
 }
 
