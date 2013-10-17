@@ -9,7 +9,7 @@ AccelStepper sz(1, 16, 15);
 AccelStepper steppers[] = {sx, sy, sz};
 
 Servo claw;
-// 0 = inactive, 1 = dropping, 2 = grabbing, 3 = lifting, 4 = reading, 5 = resetting
+// see loopClawDrop for status handling.
 int claw_status = 0;
 int clawpin = 17;
 int claw_open = 20;
@@ -97,6 +97,14 @@ void closeClaw() {
   claw.write(claw_closed);
 }
 
+void resetClaw() {
+  calibrating = 2;
+  moveStepper(xstep, max_x/2);
+  moveStepper(ystep, max_y/2);
+  moveStepper(zstep, 0);
+  openClaw();
+}
+
 void setup() {
   Wire.begin(4);                // join i2c bus with address #4
   Wire.onReceive(receiveEvent); // register event
@@ -168,6 +176,15 @@ void setSpeed(int maxSpeed, int accel) {
   stepperSpeed(ystep, maxSpeed, accel);
 }
 
+void writeResponse(int command, int arg1, int arg2) {
+  Wire.write((command >> 8) & 0xFF); 
+  Wire.write(command & 0xFF); 
+  Wire.write((arg1 >> 8) & 0xFF);
+  Wire.write(arg1 & 0xFF); 
+  Wire.write((arg2 >> 8) & 0xFF);
+  Wire.write(arg2 & 0xFF);
+}
+
 void processPacket() {
   comm = (buffer[0] << 8) + buffer[1];
   a1   = (buffer[2] << 8) + buffer[3];
@@ -212,20 +229,14 @@ void processPacket() {
   } else if (comm == 6) {
     // Initialize - already done, so do nothing.
   } else if (comm == 7) {
-    if (claw_read_value > 0) {
-      // TODO: Refactor into generic sending function if used for something else.
-      Wire.write(0); // Command - bit 1
-      Wire.write(7); 
-      Wire.write((claw_read_value >> 8) & 0xFF); // Bit 2 - value1
-      Wire.write(claw_read_value & 0xFF); // Bit 1 - value1
-      Wire.write(0); // Value 2
-      Wire.write(0);
-
-      claw_read_latch = true;
-    }
+    claw_read_latch = true;
+  } else if (comm == 10) { // Status
+    writeResponse(10, calibrating, claw_status);
+    writeResponse(11, sx.currentPosition(), sy.currentPosition());
+    writeResponse(12, sz.currentPosition(), claw.read());
+    writeResponse(13, max_x, max_y);
+    writeResponse(14, claw_drop_distance, 0);
   }
-
-  
 }
 
 // function that executes whenever data is received from master
@@ -360,11 +371,9 @@ void loopCalibrate() {
 
 
   if (allhit) {
-    calibrating = 2;
     max_x = steppers[xstep[0]].currentPosition();
     max_y = steppers[ystep[0]].currentPosition();
-    moveStepper(xstep, max_x/2);
-    moveStepper(ystep, max_y/2);
+    resetClaw();
     Serial.println("Finished Calibrating, moving to center");
     Serial.print("MaxX: ");
     Serial.print(max_x);
@@ -379,8 +388,7 @@ void loopCalibrate() {
 }
 
 void loopClawDrop() {
-  // 0 = inactive, 1 = starting, 3 = dropping, 5 = grabbing, 7 = lifting, 9 = reading, 
-  // 10 = sending, 11 = resetting
+  // 0 = inactive, 1 = starting, 3 = dropping, 5 = grabbing, 7 = lifting, 9 = reading, 11 = resetting
   switch (claw_status) {
   case 1: { // starting
     Serial.println("Dropping CLAW!");
@@ -406,33 +414,17 @@ void loopClawDrop() {
   case 7: { // Lifting
     if (zs.distanceToGo() == 0) {
       claw_status = 9;
+      claw_read_latch = false;
       Serial.println("Reading");
     }
     break;
   }
   case 9: { // Reading
-    claw_read_value = 100; // TODO: UART Read from RFID.
-    if (claw_read_value > 0) {
-      claw_read_latch = false;
-      claw_status = 10;
-      Serial.print(claw_read_value);
-      Serial.println(" - Found read value, sending");
-    }
-    break;
-  }
-  case 10: { // Waiting to send
     if (claw_read_latch) {
       resetClaw();
-      claw_status = 11;
+      claw_status = 0;
       Serial.println("Resetting");
     }
-  case 11: { // Resetting
-    if (sx.distanceToGo() == 0 && sy.distanceToGo() == 0 && sz.distanceToGo() == 0) {
-      claw_status = 0;
-      Serial.println("All done, ready for next command.");
-    }
-    break;
-  }
   }
 }
 
