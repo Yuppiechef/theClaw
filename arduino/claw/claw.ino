@@ -3,7 +3,7 @@
 #include <Servo.h> 
 
 // Define a stepper and the pins it will use
-// Yellow is sleep(3), Purple direction(4) and Documentation is red(5) 
+// Yellow is sleep(3), Purple direction(4) and step is blue(5) 
 AccelStepper sx(1, 5, 4);
 AccelStepper sy(1, 13, 12);
 AccelStepper sz(1, 16, 15);

@@ -41,9 +41,9 @@
 
 (defn message-fn
   [f ch {:keys [reply-to] :as metadata} ^bytes payload]
-  (info "Receiving message for " (:routing-key metadata))
-  (info "Metadata: " metadata)
   (try
+    (info "Receiving message for " (:routing-key metadata))
+    (info "Metadata: " metadata)
     (let [body (decode-body metadata payload)
           response (f metadata body)]
       (if (and reply-to response)
