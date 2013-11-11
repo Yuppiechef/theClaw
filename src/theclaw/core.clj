@@ -14,15 +14,15 @@
         x (/ (* (Double/parseDouble (str x)) xscale) 100.0)
         y (/ (* (Double/parseDouble (str y)) yscale) 100.0)])
   (info "Position" msg)
-  (i2c/write-command i2c/d :move (short x) (short y))
+  (i2c/write-command @i2c/d :move (short x) (short y))
   (reset! last-pos [sessionid x y])
   (mq/publish "claw.moved" {:lastx x :lasty y :time (/ (.getTime (java.util.Date.)) 1000)}))
 
 (defn claw-rawmove [_ {:keys [x y z claw sessionid] :as msg}]
   (info "RAW Position" msg)
-  (i2c/write-command i2c/d :move (Short/parseShort x) (Short/parseShort y))
+  (i2c/write-command @i2c/d :move (Short/parseShort x) (Short/parseShort y))
   (if claw 
-    (i2c/write-command i2c/d :claw (Short/parseShort z) (Short/parseShort claw)))
+    (i2c/write-command @i2c/d :claw (Short/parseShort z) (Short/parseShort claw)))
   (reset! last-pos [sessionid x y])
   (mq/publish "claw.moved" {:lastx x :lasty y :time (/ (.getTime (java.util.Date.)) 1000)}))
 
@@ -30,15 +30,16 @@
   (info "Drop" msg)
   ;;after grabbing
   (let [[sessionid x y] @last-pos]
-    (i2c/write-command i2c/d :grab)
+    (i2c/write-command @i2c/d :grab)
     (mq/publish "claw.grabbed" {:prizeid 12345 :lastx 10 :lasty 20 :sessionid sessionid})
     (mq/publish "claw.calibrate" {})))
 
 (defn claw-speed [_ {:keys [accel speed sessionid] :as msg}]
-  (i2c/write-command i2c/d :speed))
+  (i2c/write-command @i2c/d :speed accel speed))
+
 
 (defn claw-calibrate [_ msg]
-  (i2c/write-command :calibrate)
+  (i2c/write-command @i2c/d :calibrate)
   (info "Calibrate" msg)
   {:msg "hi"})
 
@@ -54,6 +55,8 @@
   (try
     (nrepl/start-server :port (Integer/parseInt (env :REPL_PORT)) :bind (env :REPL_HOST))
     (catch Exception e (.printStackTrace e)))
+  (info "Setting up i2c bus")
+  (i2c/setup-bus)
   (info "Starting up queues")
   (mq/connect!)
   (doseq [[n f] queues]
