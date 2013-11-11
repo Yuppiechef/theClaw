@@ -3,7 +3,8 @@
   (:require
    [clojure.tools.nrepl.server :as nrepl]
    [theclaw.queues :as mq]
-   [theclaw.i2c :as i2c])
+   [theclaw.i2c :as i2c]
+   [theclaw.uart :as uart])
   (:gen-class))
 
 (def calibration (atom {:xscale 1000 :yscale 1000}))
@@ -37,11 +38,14 @@
 (defn claw-speed [_ {:keys [accel speed sessionid] :as msg}]
   (i2c/write-command @i2c/d :speed accel speed))
 
-
 (defn claw-calibrate [_ msg]
   (i2c/write-command @i2c/d :calibrate)
   (info "Calibrate" msg)
   {:msg "hi"})
+
+(defn claw-read-rfid [id]
+  (info "Reading RFID: " id)
+  (mq/publish "claw.read" {:id id}))
 
 (def queues
   {"claw.move" #'claw-move
@@ -61,5 +65,6 @@
   (mq/connect!)
   (doseq [[n f] queues]
     (mq/listen-queue n f))
+  (uart/setup-serial #'claw-read-rfid)
   (info "The Claw! Is ready."))
 
