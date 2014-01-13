@@ -42,7 +42,7 @@ int enable;
 
 // {x lower, x upper, y lower, y upper}
 int limits = 4;
-int limit_pins[] = {9, 8, 7, 6};
+int limit_pins[] = {8, 9, 7, 6};
 boolean limits_hit[] = {false, false, false, false};
 long bounce_times[] = {0,0,0,0};
 long debounceDelay = 150;
@@ -52,7 +52,7 @@ boolean initialized = false;
 // Calibrating state - 0 none, 1 runninng, 2 centering
 int calibrating = 0;
 
-int calibrate_speed = 200;
+int calibrate_speed = 500;
 int max_x = 100;
 int max_y = 100;
 
@@ -60,8 +60,8 @@ void setupStepper(int* stepper) {
   stepper[1] = 0;
   pinMode(stepper[2], OUTPUT);
   digitalWrite(stepper[2],1);
-  steppers[stepper[0]].setMaxSpeed(1500);
-  steppers[stepper[0]].setAcceleration(100);
+  steppers[stepper[0]].setMaxSpeed(1000);
+  steppers[stepper[0]].setAcceleration(1000);
 }
 
 void moveStepper(int* stepper, int pos) {
@@ -78,8 +78,7 @@ void stepperSpeed(int* stepper, int maxSpeed, int accel) {
 void stopStepper(int* stepper) {
   digitalWrite(stepper[2],1);
   stepper[1] = 0;
-  AccelStepper s = steppers[stepper[0]];
-  s.moveTo(s.currentPosition());
+  steppers[stepper[0]].moveTo(steppers[stepper[0]].currentPosition());
 }
 
 void checkStepperDistance(int* stepper) {
@@ -106,12 +105,6 @@ void resetClaw() {
   openClaw();
 }
 
-void setup() {
-  Wire.begin(4);                // join i2c bus with address #4
-  Wire.onReceive(receiveEvent); // register event
-  Serial.begin(57600);         // start serial for output  
-}
-
 void initializeSteppers() {
   // clear buffer
   pos = 0;
@@ -123,7 +116,7 @@ void initializeSteppers() {
     Serial.print("Setting ");
     Serial.print(limit_pins[i]);
     Serial.println(" as input pin.");
-    pinMode(limit_pins[i], INPUT);
+    pinMode(limit_pins[i], INPUT_PULLUP);
     limits_bounce[i] = false;
   }
 
@@ -150,6 +143,21 @@ void startCalibrate() {
     limits_hit[i] = false;
   }
   calibrating = 1;
+  
+  //moveStepper(xstep, steppers[0].currentPosition()-15000);
+  //steppers[0].setMaxSpeed(calibrate_speed);
+  //steppers[0].setAcceleration(50);
+  //steppers[0].setSpeed(1);
+
+  //moveStepper(ystep, steppers[1].currentPosition()-15000);
+  //steppers[1].setMaxSpeed(calibrate_speed);
+  //steppers[1].setAcceleration(50);
+  //steppers[1].setSpeed(1);
+  //steppers[2].setMaxSpeed(calibrate_speed);
+  //steppers[2].setAcceleration(50);
+  //steppers[2].setSpeed(1);
+  
+  
   closeClaw();
 }
 
@@ -263,19 +271,19 @@ void receiveEvent(int howMany) {
 void checkLimits(int* stepper) {
   int lowlimit = stepper[3];
   int uplimit = stepper[4];
-  AccelStepper s = steppers[stepper[0]];
+  //AccelStepper s = steppers[stepper[0]];
 
   // Min
   if ((digitalRead(limit_pins[lowlimit]) == HIGH)) {
     if (!limits_bounce[lowlimit]) {
       Serial.print(limit_pins[lowlimit]);
       Serial.println(" - min limit <");
-      if (s.targetPosition() < s.currentPosition()) {
-        s.moveTo(s.currentPosition());
+      if (steppers[stepper[0]].targetPosition() < steppers[stepper[0]].currentPosition()) {
+        steppers[stepper[0]].moveTo(steppers[stepper[0]].currentPosition());
       }
       bounce_times[lowlimit] = millis();
-      s.setCurrentPosition(0);
-      s.moveTo(0);
+      steppers[stepper[0]].setCurrentPosition(0);
+      steppers[stepper[0]].moveTo(0);
       limits_bounce[lowlimit] = true;
     }
   } else {
@@ -289,8 +297,8 @@ void checkLimits(int* stepper) {
     if (!limits_bounce[uplimit]) {
       Serial.print(limit_pins[uplimit]);
       Serial.println(" - max limit >");
-      if (s.targetPosition() > s.currentPosition()) {
-        s.moveTo(s.currentPosition());
+      if (steppers[stepper[0]].targetPosition() > steppers[stepper[0]].currentPosition()) {
+        steppers[stepper[0]].moveTo(steppers[stepper[0]].currentPosition());
       }
       bounce_times[uplimit] = millis();
       limits_bounce[uplimit] = true;
@@ -311,23 +319,26 @@ void checkLimits(int* stepper) {
 void runCalibrate(int* stepper) {
   int lowlimit = stepper[3];
   int uplimit = stepper[4];
-  AccelStepper s = steppers[stepper[0]];
 
   if (!limits_hit[lowlimit]) {
     if (limits_bounce[lowlimit]) {
       limits_hit[lowlimit] = true;
     } else {
-      moveStepper(stepper, s.currentPosition()-100);
-      s.setSpeed(calibrate_speed);
-      s.runSpeedToPosition();
+      digitalWrite(stepper[2],0);
+      stepper[1] = 1;
+      //steppers[stepper[0]].move(-100);
+      steppers[stepper[0]].setSpeed(-800);
+      steppers[stepper[0]].runSpeed();
     }
   } else if (!limits_hit[uplimit]) {
     if (limits_bounce[uplimit]) {
       limits_hit[uplimit] = true;
     } else {
-      moveStepper(stepper, s.currentPosition()+100);
-      s.setSpeed(calibrate_speed);
-      s.runSpeedToPosition();
+      digitalWrite(stepper[2],0);
+      stepper[1] = 1;
+      //steppers[stepper[0]].move(100);
+      steppers[stepper[0]].setSpeed(800);
+      steppers[stepper[0]].runSpeed();
     }
   } else {
     stopStepper(stepper);
@@ -339,7 +350,7 @@ void loopCalibrateCenter() {
   if (xstep[1] == 0 && ystep[1] == 0) {
     Serial.println("Finished Centering Calibrate");
     calibrating = 0;
-    openClaw();
+    //openClaw();
   }
 }
 
@@ -359,6 +370,9 @@ void loopCalibrate() {
     return;
   }
   if (calibrating == 2) {
+    //calibrating=0;
+    steppers[xstep[0]].run();
+    steppers[ystep[0]].run();    
     loopCalibrateCenter();
     return;
   }
@@ -398,7 +412,7 @@ void loopClawDrop() {
     break;
   }
   case 3: { // Dropping
-    if (zs.distanceToGo() == 0) {
+    if (sz.distanceToGo() == 0) {
       claw_status = 5;
       Serial.println("Grabbing");
     }
@@ -408,12 +422,12 @@ void loopClawDrop() {
     closeClaw();
     delay(claw_close_time);
     moveStepper(zstep, 0);
-    claw_status = 7
+    claw_status = 7;
     Serial.println("Lifting");
     break;
   }
   case 7: { // Lifting
-    if (zs.distanceToGo() == 0) {
+    if (sz.distanceToGo() == 0) {
       claw_status = 9;
       claw_read_latch = false;
       Serial.println("Reading");
@@ -427,7 +441,25 @@ void loopClawDrop() {
       Serial.println("Resetting");
     }
   }
+  }
 }
+
+void setup() {
+  Wire.begin(4);                // join i2c bus with address #4
+  Wire.onReceive(receiveEvent); // register event
+  Serial.begin(57600);         // start serial for output
+
+  Serial.println("Initializing Steppers");
+  initializeSteppers();
+  //sx.setMaxSpeed(200.0);
+  //sx.setAcceleration(100.0);
+  //moveStepper(xstep, 2000);
+
+  //sy.setMaxSpeed(300.0);
+  //sy.setAcceleration(100.0);
+  //moveStepper(ystep, 2000);
+}
+
 
 void loop() {
   // send data only when you receive data:
@@ -447,10 +479,32 @@ void loop() {
     } else if (incomingByte == 100) {
       Serial.println("Incoming Claw Drop!");
       dropClaw();
+    } else if (incomingByte == 49) {
+      moveStepper(xstep, 100);
+      moveStepper(ystep, 100);
+    } else if (incomingByte == 50) {
+      moveStepper(xstep, max_x-100);
+      moveStepper(ystep, 100);
+    } else if (incomingByte == 51) {
+      moveStepper(xstep, 100);
+      moveStepper(ystep, max_y-100);
+    } else if (incomingByte == 52) {
+      moveStepper(xstep, max_x-100);
+      moveStepper(ystep, max_y-100);
     }
   }
   
-       
+    checkdistance();
+    checkLimits(xstep);
+    checkLimits(ystep);
+   if (calibrating > 0) {
+      loopCalibrate();
+      return;
+    }
+    
+    steppers[xstep[0]].run();
+    steppers[ystep[0]].run();
+  /*
   if (initialized) {
     checkdistance();
     checkLimits(xstep);
@@ -462,11 +516,12 @@ void loop() {
 
     steppers[xstep[0]].run();
     steppers[ystep[0]].run();
-    steppers[zstep[0]].run();
+    //steppers[zstep[0]].run();
 
     if (claw_status > 0) {
       loopClawDrop();
     }
   }
+  */
 }
 
