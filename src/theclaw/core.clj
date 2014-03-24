@@ -72,7 +72,7 @@
   (info "Starting up queues")
   (mq/connect!)
   (doseq [[n f] queues]
-    (mq/listen-queue n #(try (f %) (catch Exception e (.printStackTrace e)))))
+    (mq/listen-queue n (fn [m b] (try (f m b) (catch Exception e (.printStackTrace e))))))
   (uart/setup-serial #'claw-read-rfid)
   (info "The Claw! Is ready."))
 
