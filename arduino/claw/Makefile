@@ -47,7 +47,7 @@
 
 PORT = /dev/ttyUSB0
 TARGET = claw
-ARDUINO = /usr/share/arduino 
+ARDUINO = /usr/share/arduino/hardware/arduino/cores/arduino 
 SRC = $(ARDUINO)/buffer.c $(ARDUINO)/pins_arduino.c \
   $(ARDUINO)/Serial.c $(ARDUINO)/uart.c $(ARDUINO)/wiring.c
 CXXSRC = $(TARGET).cpp $(ARDUINO)/HardwareSerial.cpp $(ARDUINO)/WRandom.cpp
