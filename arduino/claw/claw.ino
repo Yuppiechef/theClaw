@@ -2,6 +2,313 @@
 #include <AccelStepper.h>
 #include <Servo.h> 
 
+#define DEBOUNCE_DELAY 10
+#define SERIAL_BAUD 57600
+#define STEP_MAXSPEED 1000
+#define STEP_ACCEL 1000
+#define BOUNCE_DELAY 300
+
+#define NONE 0
+#define CALIBRATE_START 1
+#define CALIBRATE_TOMAX 2
+#define CALIBRATE_CENTER 3
+
+// =====================
+
+class Limit {
+ public:
+  boolean _bounce;
+  unsigned long _bouncetime;
+  boolean _hit;
+  int _pin;
+  
+  Limit(int pin) {
+    _pin = pin;
+    _bounce = false;
+    _hit = false;
+    pinMode(pin, INPUT_PULLUP);
+  }
+
+  void loop() {
+    if (digitalRead(_pin) == HIGH) {
+      if (_bounce) {
+        return;
+      }
+
+      if (!_hit) {
+        Serial.print(_pin);
+        Serial.println(" was hit");
+      }
+
+      _bounce = true;
+      _bouncetime = millis();
+      _hit = true;
+
+    } else if (_hit && ((millis() - _bouncetime) > BOUNCE_DELAY)) {
+      _bounce = false;
+      _hit = false;
+    }
+  }
+};
+
+// =====================
+
+class Axis {
+ public:
+  String _name;
+  AccelStepper* _stepper;
+  Limit* _minlimit;
+  Limit* _maxlimit;
+  int _state = NONE;
+  int _maxsteps = 0;
+  int _enable;
+  
+  // All pins
+  Axis(String name, int step, int dir, int enable, int minlimit, int maxlimit) {
+    _name = name;
+    _enable = enable;
+    pinMode(_enable, OUTPUT);
+    digitalWrite(_enable,1);
+    _stepper = new AccelStepper(1, step, dir);
+    //_stepper->setEnablePin(enable);
+    _stepper->setMaxSpeed(STEP_MAXSPEED);
+    _stepper->setAcceleration(STEP_ACCEL);
+    //_stepper->setPinsInverted(false, false, true);
+    _minlimit = new Limit(minlimit);
+    _maxlimit = new Limit(maxlimit);
+  }
+
+  void setup() {
+    //_stepper->disableOutputs();
+    _stepper->setMaxSpeed(1000);
+    _stepper->setAcceleration(1000);
+  }
+  
+  void move(int pos) {
+    digitalWrite(_enable,0);
+    _stepper->moveTo(pos);
+    //_stepper->enableOutputs();
+  }
+
+  void stop() {
+    digitalWrite(_enable,1);
+    _stepper->stop();
+    //_stepper->disableOutputs();
+    
+  }
+
+  void calibrate() {
+    _state = CALIBRATE_START;
+    _stepper->setCurrentPosition(0);
+    move(-20000);
+  }
+  
+  void loop() {
+    _minlimit->loop();
+    _maxlimit->loop();
+    _stepper->run();
+    
+    if ((_stepper->distanceToGo() == 0) ||
+        (_stepper->distanceToGo() < 0 && _minlimit->_hit) ||
+        (_stepper->distanceToGo() > 0 && _maxlimit->_hit)) {
+      if (_state == CALIBRATE_START && _minlimit->_hit) {
+        _state = CALIBRATE_TOMAX;
+        _stepper->setCurrentPosition(0);
+        move(20000);
+        Serial.print(_name);
+        Serial.println(": Calibration Minimum hit");
+      } else if (_state == CALIBRATE_TOMAX && _maxlimit->_hit) {
+        _maxsteps = _stepper->currentPosition();
+        _stepper->setCurrentPosition(_maxsteps);
+        move(_maxsteps / 2);
+        _state = CALIBRATE_CENTER;
+        Serial.print(_name);
+        Serial.println(": Calibration Maximum hit");
+      } else {
+
+        if (_state != NONE) {
+          Serial.print(_name);
+          Serial.print(", min: ");
+          Serial.print(_minlimit->_hit);
+          Serial.print(", max: ");
+          Serial.print(_maxlimit->_hit);
+          Serial.print(", state: ");
+          Serial.print(_state);
+          Serial.print(", pos: ");
+          Serial.print(_stepper->currentPosition());
+          Serial.print(", dist: ");
+          Serial.print(_stepper->distanceToGo());
+          
+          
+          _state = NONE;
+          Serial.println(": Finished calibration");
+        }
+        
+        stop();
+        return;
+      }
+    }
+  }
+};
+
+// =====================
+
+class Plotter {
+ private:
+  Axis* _x;
+  Axis* _y;
+  
+ public:
+  Plotter() {
+    _x = new Axis("X Axis", 5, 4, 3, 8, 9);
+    _y = new Axis("Y Axis", 13, 12, 11, 7, 6);
+  }
+
+  void setup() {
+    _x->setup();
+    _y->setup();
+  }
+  
+  void loop() {
+    _x->loop();
+    _y->loop();
+  }
+
+  void moveTo(int x, int y) {
+    _x->move(x);
+    _y->move(y);
+  }
+
+  void calibrate() {
+    _x->calibrate();
+    _y->calibrate();
+  }
+
+  void stop() {
+    _x->stop();
+    _y->stop();
+  }
+};
+
+// =======================
+
+class Dropper {
+ private:
+  int _drop_distance;
+  AccelStepper _sz;
+  // Stepper index, Moving status, sleep pin
+  // int zstep[] = {2, 1, 14};
+
+ public:
+  Dropper(int dirpin, int steppin) {
+    _sz = AccelStepper(1, dirpin, steppin);
+  }
+};
+
+// =======================
+
+class Claw {
+ private:
+  int _clawpin;
+  int _status;
+  int _open_angle;
+  int _close_angle;
+  int _close_time;
+  int _read_latch;
+  Servo* _claw;
+  
+ public:
+  Claw(int pin) {
+    //_claw = new Servo(pin);
+  }
+};
+
+// ======================
+
+class Comms {
+ private:
+  Plotter* _plot;
+  Servo _claw;
+  
+ public:
+  Comms(Plotter* plot) {
+    _plot = plot;
+    _claw.attach(17);
+    Serial.begin(SERIAL_BAUD);
+  }
+
+  void handleReceive(byte b) {
+    switch (b) {
+    case 105 : // i
+      Serial.println("Initializing Steppers");
+      _claw.write(0);
+      //_plot->setup();
+      //_ax->move(-500);
+      break;
+    case 99 : // c
+      Serial.println("Calibrating");
+      _plot->calibrate();
+      break;
+    case 100 : // d
+      Serial.println("Incoming Claw Drop!");
+      //dropClaw();
+      _claw.write(180);
+      break;
+    case 115:
+      Serial.println("Stopping");
+      //_plot->stop();
+      _claw.write(90);
+      break;
+    }    
+  }
+  
+  void loop() {
+    if (Serial.available() > 0) {
+      // read the incoming byte:
+      byte incomingByte = Serial.read();
+      // say what you got:
+      Serial.print("Serial received: ");
+      Serial.println(incomingByte, DEC);
+      handleReceive(incomingByte);
+    }
+  }
+};
+
+// ======================
+
+class I2C {
+};
+
+
+  // Stepper index, Moving status, sleep pin, low limit pin index, high limit pin index
+  // int xstep[] = {0, 1, 3, 0, 1};
+  // int ystep[] = {1, 1, 11, 2, 3};
+
+Plotter* plot;
+Comms* comms;
+
+
+void setup() {
+  plot = new Plotter();
+  plot->setup();
+  comms = new Comms(plot);
+  
+  Serial.println("started");
+}
+
+void loop() {
+  //plot->loop();
+  comms->loop();
+}
+/*
+Dropper drop(16, 15);
+Claw theclaw(17);
+I2C i2c();
+
+
+
+
+/*
 // Define a stepper and the pins it will use
 // Yellow is sleep(3), Purple direction(4) and step is blue(5) 
 AccelStepper sx(1, 5, 4);
@@ -523,5 +830,5 @@ void loop() {
     }
   }
   */
-}
+//}
 
